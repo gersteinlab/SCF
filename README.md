@@ -4,3 +4,12 @@ This repository contains two separate scripts written in R, along with the data 
 
 The R script "software.R" requires the following 9 user-inputted command-line arguments: 
 
+1) filename of catted 4-column file (date, time, variable, value)
+2) length of interval to align data to in minutes
+3) start date of analysis in YYYY-MM-DD
+4) start time of analysis in HH:MM:SS
+5) end date of analysis in YYYY-MM-DD
+6) end time of analysis in HH:MM:SS
+7) date of intervention in YYYY-MM-DD
+8) time of intervention in HH:MM:SS
+9) dependent variable name
