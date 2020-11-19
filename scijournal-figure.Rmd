@@ -1,0 +1,142 @@
+---
+title: "Science journal figure"
+author: "Rebecca Hoyd"
+date: "August 15, 2019"
+output: html_document
+---
+
+The purpose of this document is to use Google's CausalImpact package and the data generated with Google's Science Journal to model impacts of human behavior. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("dplyr")
+library("ggplot2")
+library("CausalImpact")
+library("tidyr")
+library("ggpubr")
+```
+
+# Load data
+
+This data was all recorded using Google's Science Journal's linear accelerometer. The tool reports time in units of 1/1000 seconds, so we format the time measurement back to seconds and cut off the experiment at the intended 20 seconds. The "noise" samples were recorded at the same time using two separate phones.
+
+```{r}
+nohop <- read.csv("scijournal_data/change_radius.csv")
+nohop <- nohop %>%
+  mutate(relative_time = relative_time/1000) %>%
+  filter(relative_time <= 20)
+
+noise_control <- read.csv("scijournal_data/spin-hop_ideal-control.csv")
+noise_control <- noise_control %>%
+  mutate(relative_time = relative_time/1000) %>%
+  filter(relative_time <= 20)
+
+noise_event <- read.csv("scijournal_data/spin-hop_ideal-change.csv")
+noise_event <- noise_event %>%
+  mutate(relative_time = relative_time/1000) %>%
+  filter(relative_time <= 20)
+```
+
+# Format data
+
+For causal impact to work, the time series need to have been measured at the same time points. In this case, the phones took measurements at slightly different intervals. I've collapsed both series to have a measurement every tenth of  second by taking the measurement from the original data that was closest in time to each tenth of a second and combine the two data sets. We also collapse the data set without noise for convenience of labelling.
+
+```{r combine noise data}
+noise_control_1 <- noise_control %>%
+  mutate(x = round(relative_time, 1),
+         y = abs(relative_time - x))
+
+noise_control_1 <- noise_control_1 %>%
+  group_by(x) %>%
+  summarise(y = min(y)) %>%
+  left_join(noise_control_1)
+
+noise_event_1 <- noise_event %>%
+  mutate(x = round(relative_time, 1),
+         y = abs(relative_time - x))
+
+noise_event_1 <- noise_event_1 %>%
+  group_by(x) %>%
+  summarise(y = min(y)) %>%
+  left_join(noise_event_1)
+  
+
+noise_set <- noise_control_1 %>%
+  mutate(lincont = LinearAccelerometerSensor) %>%
+  dplyr::select(x, lincont) %>%
+  left_join(noise_event_1) %>%
+  dplyr::select(x, LinearAccelerometerSensor, lincont)
+```
+
+```{r refine exercise 1}
+nohop_1 <- nohop %>%
+  mutate(x = round(relative_time, 1),
+         y = abs(relative_time - x))
+
+nohop_1 <- nohop_1 %>%
+  group_by(x) %>%
+  summarise(y = min(y)) %>%
+  left_join(nohop_1)
+
+```
+
+```{r determine edges of the noise periods for causal impact}
+period <- noise_set$x <= 10.5
+table(period)
+pre.period.noise <- c(1, 108)
+post.period.noise <- c(109, 203)
+```
+
+```{r determine edges for data without noise}
+period <- nohop_1$x <= 10
+table(period)
+
+nohop.pre <- c(1,101)
+nohop.post <- c(102,200)
+```
+
+# Run CausalImpact and build the figure
+
+```{r}
+no_hop.res <- CausalImpact(nohop_1$LinearAccelerometerSensor, pre.period = nohop.pre, post.period = nohop.post)
+
+plot(no_hop.res)
+```
+
+```{r}
+jumpnocov.res <- CausalImpact(noise_set$LinearAccelerometerSensor, pre.period = pre.period.noise, post.period = post.period.noise)
+
+plot(jumpnocov.res)
+```
+
+
+```{r}
+noise.res <- CausalImpact(noise_set[,-1], pre.period.noise, post.period.noise)
+
+plot(noise.res)
+```
+
+```{r}
+with_cont.plot <- plot(noise.res, c("original", "cumulative")) +
+  scale_x_continuous(breaks = c(0,50,100,150,200), labels = c(0,5,10,15,20))
+
+no_hop.plot <- plot(no_hop.res, c("original", "cumulative")) +
+  scale_x_continuous(breaks = c(0,50,100,150,200), labels = c(0,5,10,15,20))
+
+hop.plot <- plot(jumpnocov.res, c("original", "cumulative")) +
+  scale_x_continuous(breaks = c(0,50,100,150,200), labels = c(0,5,10,15,20))
+```
+
+
+```{r}
+theme_set(theme_pubr())
+
+figure <- ggarrange(no_hop.plot, hop.plot, with_cont.plot,
+                    labels = c("A", "B", "C"),
+                    ncol = 1, nrow = 3,
+                    align = "v")
+
+ggsave(plot(figure), filename = "causal-impact_spin_panel-figure.pdf", dev = "pdf", height = 8, width = 6)
+
+```
