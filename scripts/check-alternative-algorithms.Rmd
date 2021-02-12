@@ -1,0 +1,273 @@
+---
+title: "Alternative algorthms"
+author: "Rebecca Hoyd"
+date: "2/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tseries)
+library(forecast)
+library(ggplot2)
+library(segmented)
+library(gee)
+library(keras)
+library(caret)
+```
+
+# Load data
+```{r}
+ideal_control <- read.csv("../data/scijournal_spin-hop_ideal-control.csv")
+ideal_control <- ideal_control %>%
+  mutate(relative_time = relative_time/1000) %>%
+  filter(relative_time <= 20)
+
+ideal_event <- read.csv("../data/scijournal_spin-hop_ideal-change.csv")
+ideal_event <- ideal_event %>%
+  mutate(relative_time = relative_time/1000) %>%
+  filter(relative_time <= 20)
+
+nohop <- read.csv("../data/scijournal_change_radius.csv")
+nohop <- nohop %>%
+  mutate(relative_time = relative_time/1000) %>%
+  filter(relative_time <= 20)
+```
+
+```{r data formatting}
+ideal_control_1 <- ideal_control %>%
+  mutate(x = round(relative_time, 1),
+         y = abs(relative_time - x))
+
+ideal_control_1 <- ideal_control_1 %>%
+  group_by(x) %>%
+  summarise(y = min(y)) %>%
+  left_join(ideal_control_1)
+
+ideal_event_1 <- ideal_event %>%
+  mutate(x = round(relative_time, 1),
+         y = abs(relative_time - x))
+
+ideal_event_1 <- ideal_event_1 %>%
+  group_by(x) %>%
+  summarise(y = min(y)) %>%
+  left_join(ideal_event_1)
+
+ideal_set <- ideal_control_1 %>%
+  mutate(lincont = LinearAccelerometerSensor) %>%
+  dplyr::select(x, lincont) %>%
+  left_join(ideal_event_1) %>%
+  dplyr::select(x, LinearAccelerometerSensor, lincont)
+
+period <- ideal_set$x <= 10.5
+table(period)
+pre.period.ideal <- c(1, 95)
+post.period.ideal <- c(96, 96+108)
+
+
+nohop <- nohop %>%
+  mutate(modfeed = ifelse(relative_time > 10, NA, LinearAccelerometerSensor))
+nohop.modfeed <- nohop$modfeed
+
+nohop.pre <- c(1,175)
+nohop.post <- c(176,349)
+```
+
+# ARIMAX
+
+```{r}
+arima.input <- nohop$LinearAccelerometerSensor[1:175]
+
+fit.arima <- auto.arima(arima.input)
+tsdisplay(residuals(fit.arima))
+```
+
+```{r}
+# par(mfrow=c(1, 1))
+ts.forecasts<-forecast(fit.arima, h=174)
+plot(ts.forecasts, include = 2880)
+
+low.confit <- ts.forecasts$lower[,2]
+upper.confint <- ts.forecasts$upper[,2]
+obs.val <- nohop$LinearAccelerometerSensor[176:349]
+
+plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
+  mutate(x = 1:174)
+
+plot.res %>%
+  ggplot(aes(x=x, y=obs.val))+
+  geom_path() +
+  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), show.legend = F) +
+  labs(title = "Display ARIMA confidence interval with observed values") +
+  theme_bw()
+```
+
+## Add noise
+
+```{r}
+arima.input <- ideal_set$LinearAccelerometerSensor[1:95]
+
+fit.arima <- auto.arima(arima.input)
+tsdisplay(residuals(fit.arima))
+```
+
+```{r}
+# par(mfrow=c(1, 1))
+ts.forecasts<-forecast(fit.arima, h=109)
+plot(ts.forecasts, include = 2880)
+
+low.confit <- ts.forecasts$lower[,2]
+upper.confint <- ts.forecasts$upper[,2]
+obs.val <- ideal_set$LinearAccelerometerSensor[96:204]
+
+plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
+  mutate(x = 1:109)
+
+plot.res %>%
+  ggplot(aes(x=x, y=obs.val))+
+  geom_path() +
+  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), show.legend = F) +
+  labs(title = "Display ARIMA confidence interval with observed values, adding noise") +
+  theme_bw()
+```
+# GLMM
+
+```{r}
+
+````
+
+# GEE
+
+```{r}
+ideal_set$changepoint <- c(rep(0, 95), rep(1, 108))
+
+gee.mod <- gee(formula = LinearAccelerometerSensor ~ lincont + changepoint,id = changepoint, data = ideal_set, family = "gaussian")
+
+gee.mod$coefficients
+```
+
+# RNN
+https://www.kaggle.com/rtatman/beginner-s-intro-to-rnn-s-in-r
+
+This is from a tutorial guessing a binary outcome, similar to the other summary Dan found. New keywords: sig diff between time series? We could test the series before and after the event?
+```{r data set up}
+# set some parameters for our model
+max_len <- 6 # the number of previous examples we'll look at
+batch_size <- 32 # number of sequences to look at at one time during training
+total_epochs <- 15 # how many times we'll look @ the whole dataset while training our model
+
+# set a random seed for reproducability
+set.seed(123)
+
+# Cut the text in overlapping sample sequences of max_len characters
+rain <- ideal_set$LinearAccelerometerSensor
+# get a list of start indexes for our (overlapping) chunks
+start_indexes <- seq(1, length(rain) - (max_len + 1), by = 3)
+
+# create an empty matrix to store our data in
+weather_matrix <- matrix(nrow = length(start_indexes), ncol = max_len + 1)
+
+# fill our matrix with the overlapping slices of our dataset
+for (i in 1:length(start_indexes)){
+  weather_matrix[i,] <- rain[start_indexes[i]:(start_indexes[i] + max_len)]
+}
+
+# make sure it's numeric
+weather_matrix <- weather_matrix * 1
+
+# remove na's if you have them
+if(anyNA(weather_matrix)){
+    weather_matrix <- na.omit(weather_matrix)
+}
+
+X <- weather_matrix[,-ncol(weather_matrix)]
+y <- weather_matrix[,ncol(weather_matrix)]
+
+# create an index to split our data into testing & training sets
+training_index <- createDataPartition(y, p = .9, 
+                                  list = FALSE, 
+                                  times = 1)
+
+# training data
+X_train <- array(X[training_index,], dim = c(length(training_index), max_len, 1))
+y_train <- y[training_index]
+
+# testing data
+X_test <- array(X[-training_index,], dim = c(length(y) - length(training_index), max_len, 1))
+y_test <- y[-training_index]
+```
+
+```{r model set up}
+# initialize our model
+model <- keras_model_sequential()
+# dimensions of our input data
+dim(X_train)
+
+# our input layer
+model %>%
+    layer_dense(input_shape = dim(X_train)[2:3], units = max_len)
+model %>% 
+    layer_simple_rnn(units = 6)
+model %>%
+    layer_dense(units = 1, activation = 'sigmoid') # output
+
+# look at our model architecture
+summary(model)
+
+model %>% compile(loss = 'binary_crossentropy', 
+                  optimizer = 'RMSprop', 
+                  metrics = c('accuracy'))
+```
+
+```{r}
+# Actually train our model! This step will take a while
+trained_model <- model %>% fit(
+    x = X_train, # sequence we're using for prediction 
+    y = y_train, # sequence we're predicting
+    batch_size = batch_size, # how many samples to pass to our model at a time
+    epochs = total_epochs, # how many times we'll look @ the whole dataset
+    validation_split = 0.1) # how much data to hold out for testing as we go along
+
+```
+
+```{r}
+# how well did our trained model do?
+trained_model
+
+# plot how our model preformance changed during training 
+plot(trained_model)
+
+# Predict the classes for the test data
+classes <- model %>% predict_classes(X_test, batch_size = batch_size)
+
+# Confusion matrix
+table(y_test, classes)
+
+model %>% evaluate(X_test, y_test, batch_size = batch_size)
+
+# baseline: just guess the weather will be the same as yesterday
+day_before <- X_test[,max_len - 1,1]
+
+# Confusion matrix
+table(y_test, day_before)
+
+# accuracy
+sum(day_before == classes)/length(classes)
+```
+# LSTN
+
+# Change point analysis: 
+
+```{r}
+sem_lm <- lm(LinearAccelerometerSensor ~ 1 + lincont, data = ideal_set)
+seg.fit <- segmented(sem_lm, ~lincont, npsi = 1)
+
+summary(seg.fit)
+
+sem_lm <- lm(LinearAccelerometerSensor ~ 1 + x, data = ideal_set)
+seg.fit <- segmented(sem_lm, ~x, npsi = 1)
+
+summary(seg.fit)
+```
