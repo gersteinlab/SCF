@@ -16,6 +16,7 @@ library(segmented)
 library(gee)
 library(keras)
 library(caret)
+library(tidyr)
 ```
 
 # Load data
@@ -92,16 +93,30 @@ plot(ts.forecasts, include = 2880)
 low.confit <- ts.forecasts$lower[,2]
 upper.confint <- ts.forecasts$upper[,2]
 obs.val <- nohop$LinearAccelerometerSensor[176:349]
+pred.val <- ts.forecasts$mean
 
-plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
-  mutate(x = 1:174)
+init.obs <- nohop %>%
+  select(LinearAccelerometerSensor) %>%
+  rename('t.ser' = 'LinearAccelerometerSensor') %>%
+  mutate(obs.pred = "obs.val",
+         x = 1:349) %>%
+  filter(x %in% 1:175)
+
+plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
+  mutate(x = 176:349) %>%
+  gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
+  bind_rows(init.obs) %>%
+  arrange(x)
 
 plot.res %>%
-  ggplot(aes(x=x, y=obs.val))+
-  geom_path() +
-  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), show.legend = F) +
-  labs(title = "Display ARIMA confidence interval with observed values") +
-  theme_bw()
+  ggplot(aes(x=x, y=t.ser))+
+  geom_path(aes(color = obs.pred)) +
+  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), fill = "lightblue", show.legend = F) +
+  scale_color_manual(breaks = c('obs.val', 'pred.val'), labels = c("Observed", "Predicted"),
+                     values = c("firebrick", "darkblue"), name ="Series") +
+  labs(title = "ARIMA:change circumference of spin", x="", y = "") +
+  theme_bw() +
+  ggsave("../figures/ARIMA_no-noise.png")
 ```
 
 ## Add noise
@@ -121,22 +136,96 @@ plot(ts.forecasts, include = 2880)
 low.confit <- ts.forecasts$lower[,2]
 upper.confint <- ts.forecasts$upper[,2]
 obs.val <- ideal_set$LinearAccelerometerSensor[96:204]
+pred.val <- ts.forecasts$mean
 
-plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
-  mutate(x = 1:109)
+init.obs <- ideal_set %>%
+  select(LinearAccelerometerSensor) %>%
+  rename('t.ser' = 'LinearAccelerometerSensor') %>%
+  mutate(obs.pred = "obs.val",
+         x = 1:203) %>%
+  filter(x %in% 1:95)
+
+plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
+  mutate(x = 96:204) %>%
+  gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
+  bind_rows(init.obs) %>%
+  arrange(x)
+
+# plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
+#   mutate(x = 176:349)
 
 plot.res %>%
-  ggplot(aes(x=x, y=obs.val))+
-  geom_path() +
-  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), show.legend = F) +
-  labs(title = "Display ARIMA confidence interval with observed values, adding noise") +
-  theme_bw()
+  ggplot(aes(x=x, y=t.ser))+
+  geom_path(aes(color = obs.pred)) +
+  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), fill = "lightblue", show.legend = F) +
+  scale_color_manual(breaks = c('obs.val', 'pred.val'), labels = c("Observed", "Predicted"),
+                     values = c("firebrick", "darkblue"), name ="Series") +
+  labs(title = "ARIMA:add jump for noise", x="", y = "") +
+  theme_bw() +
+  ggsave("../figures/ARIMA_add-noise.png")
 ```
+
+## Account for noise
+
+```{r}
+arima.input <- ideal_set$LinearAccelerometerSensor[1:95]
+covser <- ideal_set$lincont[1:95]
+covtest <- ideal_set$lincont[96:203]
+
+fit.arima <- auto.arima(arima.input, xreg = covser)
+tsdisplay(residuals(fit.arima))
+```
+
+
+```{r}
+# par(mfrow=c(1, 1))
+ts.forecasts<-forecast(fit.arima, h=108, xreg = covtest)
+plot(ts.forecasts, include = 2880)
+
+low.confit <- ts.forecasts$lower[,2]
+upper.confint <- ts.forecasts$upper[,2]
+obs.val <- ideal_set$LinearAccelerometerSensor[96:203]
+pred.val <- ts.forecasts$mean
+
+init.obs <- ideal_set %>%
+  dplyr::select(LinearAccelerometerSensor) %>%
+  rename('LinearAccelerometerSensor' = "t.ser") %>%
+  mutate(obs.pred = "obs.val",
+         x = 1:203) %>%
+  filter(x %in% 1:95)
+
+control.ser <- ideal_set %>%
+  dplyr::select(lincont) %>%
+  rename("lincont" = "t.ser") %>%
+  mutate(obs.pred = "control",
+         x = 1:203)
+
+plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
+  mutate(x = 96:203) %>%
+  gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
+  bind_rows(init.obs) %>%
+  bind_rows(control.ser) %>%
+  arrange(x)
+
+# plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
+#   mutate(x = 176:349)
+
+plot.res %>%
+  ggplot(aes(x=x, y=t.ser))+
+  geom_path(aes(color = obs.pred)) +
+  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), fill = "lightblue", show.legend = F) +
+  scale_color_manual(breaks = c("control", 'obs.val', 'pred.val'), labels = c("Control", "Observed", "Predicted"),
+                     values = c("grey30", "firebrick", "darkblue"), name ="Series") +
+  labs(title = "ARIMA:account for noise", x="", y = "") +
+  theme_bw() +
+  ggsave("../figures/ARIMA_account-noise.png")
+```
+
 # GLMM
 
 ```{r}
 
-````
+```
 
 # GEE
 
