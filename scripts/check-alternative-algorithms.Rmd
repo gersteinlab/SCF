@@ -210,10 +210,15 @@ plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %
 # plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
 #   mutate(x = 176:349)
 
+hold.confint <- as.data.frame(cbind(low.confit, upper.confint)) %>%
+  mutate(x = 96:203) %>%
+  arrange(x)
+
 plot.res %>%
   ggplot(aes(x=x, y=t.ser))+
   geom_path(aes(color = obs.pred)) +
-  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), fill = "lightblue", show.legend = F) +
+  geom_ribbon(data = hold.confint, inherit.aes = F,
+              aes(ymin = low.confit, ymax = upper.confint, alpha = .2, x = x), fill = "lightblue", show.legend = F) +
   scale_color_manual(breaks = c("control", 'obs.val', 'pred.val'), labels = c("Control", "Observed", "Predicted"),
                      values = c("grey30", "firebrick", "darkblue"), name ="Series") +
   labs(title = "ARIMA:account for noise", x="", y = "") +
