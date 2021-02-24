@@ -119,6 +119,21 @@ plot.res %>%
   ggsave("../figures/ARIMA_no-noise.png")
 ```
 
+```{r}
+cml.up <- cumsum(upper.confint)
+cml.down <- cumsum(low.confit)
+cml.pred <- cumsum(pred.val)
+cml.obs <- cumsum(obs.val)
+
+
+cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:174))
+
+cml.df %>%
+  ggplot(aes(x = x, y = cml.obs)) +
+  geom_path() +
+  geom_ribbon(aes(ymin = cml.down, ymax = cml.up), fill = "darkblue", alpha = 0.5)
+```
+
 ## Add noise
 
 ```{r}
@@ -165,6 +180,21 @@ plot.res %>%
   ggsave("../figures/ARIMA_add-noise.png")
 ```
 
+```{r}
+cml.up <- cumsum(upper.confint)
+cml.down <- cumsum(low.confit)
+cml.pred <- cumsum(pred.val)
+cml.obs <- cumsum(obs.val)
+
+
+cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:109))
+
+cml.df %>%
+  ggplot(aes(x = x, y = cml.obs)) +
+  geom_path() +
+  geom_ribbon(aes(ymin = cml.down, ymax = cml.up), fill = "darkblue", alpha = 0.5)
+```
+
 ## Account for noise
 
 ```{r}
@@ -189,14 +219,14 @@ pred.val <- ts.forecasts$mean
 
 init.obs <- ideal_set %>%
   dplyr::select(LinearAccelerometerSensor) %>%
-  rename('LinearAccelerometerSensor' = "t.ser") %>%
+  rename("t.ser" = 'LinearAccelerometerSensor') %>%
   mutate(obs.pred = "obs.val",
          x = 1:203) %>%
   filter(x %in% 1:95)
 
 control.ser <- ideal_set %>%
   dplyr::select(lincont) %>%
-  rename("lincont" = "t.ser") %>%
+  rename("t.ser" = "lincont") %>%
   mutate(obs.pred = "control",
          x = 1:203)
 
@@ -224,6 +254,21 @@ plot.res %>%
   labs(title = "ARIMA:account for noise", x="", y = "") +
   theme_bw() +
   ggsave("../figures/ARIMA_account-noise.png")
+```
+
+```{r}
+cml.up <- cumsum(upper.confint)
+cml.down <- cumsum(low.confit)
+cml.pred <- cumsum(pred.val)
+cml.obs <- cumsum(obs.val)
+
+
+cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:108))
+
+cml.df %>%
+  ggplot(aes(x = x, y = cml.obs)) +
+  geom_path() +
+  geom_ribbon(aes(ymin = cml.down, ymax = cml.up), fill = "darkblue", alpha = 0.5)
 ```
 
 # GLMM
