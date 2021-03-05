@@ -120,18 +120,28 @@ plot.res %>%
 ```
 
 ```{r}
-cml.up <- cumsum(upper.confint)
-cml.down <- cumsum(low.confit)
-cml.pred <- cumsum(pred.val)
-cml.obs <- cumsum(obs.val)
+cml.pre <- cumsum(init.obs$t.ser)
+end.pre <- max(nohop.pre)
 
+cml.up <- c(cml.pre, cumsum(upper.confint) + cml.pre[end.pre])
+cml.down <- c(cml.pre, cumsum(low.confit) + cml.pre[end.pre])
+cml.pred <- c(cml.pre, cumsum(pred.val) + cml.pre[end.pre])
+cml.obs <- c(cml.pre, cumsum(obs.val) + cml.pre[end.pre])
 
-cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:174))
+  # series$cum.effect <- series$cum.y.model - series$cum.pred
+  # series$cum.effect.lower <- series$cum.y.model - series$cum.pred.upper
+  # series$cum.effect.upper <- series$cum.y.model - series$cum.pred.lower
+
+cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:349)) %>%
+  mutate(cml.effect = cml.obs - cml.pred,
+         cml.effect.lower = cml.obs -cml.up,
+         cml.effect.upper = cml.obs - cml.down)
 
 cml.df %>%
-  ggplot(aes(x = x, y = cml.obs)) +
+  ggplot(aes(x = x, y = cml.effect)) +
   geom_path() +
-  geom_ribbon(aes(ymin = cml.down, ymax = cml.up), fill = "darkblue", alpha = 0.5)
+  geom_ribbon(aes(ymin = cml.effect.lower, ymax = cml.effect.upper), fill = "darkblue", alpha = 0.5) +
+  ggsave("../figures/cmlint_no-noise.png")
 ```
 
 ## Add noise
@@ -181,18 +191,28 @@ plot.res %>%
 ```
 
 ```{r}
-cml.up <- cumsum(upper.confint)
-cml.down <- cumsum(low.confit)
-cml.pred <- cumsum(pred.val)
-cml.obs <- cumsum(obs.val)
+cml.pre <- cumsum(init.obs$t.ser)
+end.pre <- max(pre.period.ideal)
 
+cml.up <- c(cml.pre, cumsum(upper.confint) + cml.pre[end.pre])
+cml.down <- c(cml.pre, cumsum(low.confit) + cml.pre[end.pre])
+cml.pred <- c(cml.pre, cumsum(pred.val) + cml.pre[end.pre])
+cml.obs <- c(cml.pre, cumsum(obs.val) + cml.pre[end.pre])
 
-cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:109))
+  # series$cum.effect <- series$cum.y.model - series$cum.pred
+  # series$cum.effect.lower <- series$cum.y.model - series$cum.pred.upper
+  # series$cum.effect.upper <- series$cum.y.model - series$cum.pred.lower
+
+cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:204)) %>%
+  mutate(cml.effect = cml.obs - cml.pred,
+         cml.effect.lower = cml.obs -cml.up,
+         cml.effect.upper = cml.obs - cml.down)
 
 cml.df %>%
-  ggplot(aes(x = x, y = cml.obs)) +
+  ggplot(aes(x = x, y = cml.effect)) +
   geom_path() +
-  geom_ribbon(aes(ymin = cml.down, ymax = cml.up), fill = "darkblue", alpha = 0.5)
+  geom_ribbon(aes(ymin = cml.effect.lower, ymax = cml.effect.upper), fill = "darkblue", alpha = 0.5) +
+  ggsave("../figures/cmlint_add-noise.png")
 ```
 
 ## Account for noise
@@ -257,18 +277,28 @@ plot.res %>%
 ```
 
 ```{r}
-cml.up <- cumsum(upper.confint)
-cml.down <- cumsum(low.confit)
-cml.pred <- cumsum(pred.val)
-cml.obs <- cumsum(obs.val)
+cml.pre <- cumsum(init.obs$t.ser)
+end.pre <- max(pre.period.ideal)
 
+cml.up <- c(cml.pre, cumsum(upper.confint) + cml.pre[end.pre])
+cml.down <- c(cml.pre, cumsum(low.confit) + cml.pre[end.pre])
+cml.pred <- c(cml.pre, cumsum(pred.val) + cml.pre[end.pre])
+cml.obs <- c(cml.pre, cumsum(obs.val) + cml.pre[end.pre])
 
-cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:108))
+  # series$cum.effect <- series$cum.y.model - series$cum.pred
+  # series$cum.effect.lower <- series$cum.y.model - series$cum.pred.upper
+  # series$cum.effect.upper <- series$cum.y.model - series$cum.pred.lower
+
+cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:203)) %>%
+  mutate(cml.effect = cml.obs - cml.pred,
+         cml.effect.lower = cml.obs -cml.up,
+         cml.effect.upper = cml.obs - cml.down)
 
 cml.df %>%
-  ggplot(aes(x = x, y = cml.obs)) +
+  ggplot(aes(x = x, y = cml.effect)) +
   geom_path() +
-  geom_ribbon(aes(ymin = cml.down, ymax = cml.up), fill = "darkblue", alpha = 0.5)
+  geom_ribbon(aes(ymin = cml.effect.lower, ymax = cml.effect.upper), fill = "darkblue", alpha = 0.5) +
+  ggsave("../figures/cmlint_account-noise.png")
 ```
 
 # GLMM
@@ -291,7 +321,7 @@ gee.mod$coefficients
 https://www.kaggle.com/rtatman/beginner-s-intro-to-rnn-s-in-r
 
 This is from a tutorial guessing a binary outcome, similar to the other summary Dan found. New keywords: sig diff between time series? We could test the series before and after the event?
-```{r data set up}
+```{r data set up, eval = F}
 # set some parameters for our model
 max_len <- 6 # the number of previous examples we'll look at
 batch_size <- 32 # number of sequences to look at at one time during training
@@ -338,7 +368,7 @@ X_test <- array(X[-training_index,], dim = c(length(y) - length(training_index),
 y_test <- y[-training_index]
 ```
 
-```{r model set up}
+```{r model set up, eval = F}
 # initialize our model
 model <- keras_model_sequential()
 # dimensions of our input data
@@ -360,7 +390,7 @@ model %>% compile(loss = 'binary_crossentropy',
                   metrics = c('accuracy'))
 ```
 
-```{r}
+```{r, eval = F}
 # Actually train our model! This step will take a while
 trained_model <- model %>% fit(
     x = X_train, # sequence we're using for prediction 
@@ -371,7 +401,7 @@ trained_model <- model %>% fit(
 
 ```
 
-```{r}
+```{r, eval=F}
 # how well did our trained model do?
 trained_model
 
