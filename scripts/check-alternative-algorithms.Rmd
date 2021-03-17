@@ -12,10 +12,6 @@ library(dplyr)
 library(tseries)
 library(forecast)
 library(ggplot2)
-library(segmented)
-library(gee)
-library(keras)
-library(caret)
 library(tidyr)
 ```
 
@@ -79,364 +75,227 @@ nohop.post <- c(176,349)
 # ARIMAX
 
 ```{r}
-arima.input <- nohop$LinearAccelerometerSensor[1:175]
+pull.arima.model <- function(arima.input, obs.val, cov.ser = NULL, cov.test = NULL){
+  
+  # Get the modeling info, including and excluding covariate.
+  if(!is.null(cov.ser)){
+    fit.arima <- auto.arima(arima.input, xreg = cov.ser)
+    ts.forecasts<-forecast(fit.arima, h=length(obs.val), xreg = cov.test)
+  } else{
+    fit.arima <- auto.arima(arima.input)
+    ts.forecasts<-forecast(fit.arima, h=length(obs.val))
+  }
+  
+  low.confit <- ts.forecasts$lower[,2]
+  upper.confint <- ts.forecasts$upper[,2]
+  pred.val <- ts.forecasts$mean
+  
+  # Replicate CI plot, including and excluding covariate.
+  init.obs <- as.data.frame(cbind(t.ser = arima.input, obs.pred = "obs.val"), stringsAsFactors = F) %>%
+    mutate(x = row_number(),
+           t.ser = as.numeric(t.ser))
 
-fit.arima <- auto.arima(arima.input)
-tsdisplay(residuals(fit.arima))
+  if(!is.null(cov.ser)){
+  control.ser <- as.data.frame(cbind(t.ser = c(cov.ser, cov.test),
+                                     obs.pred = "control"), stringsAsFactors = F) %>%
+    mutate(x = row_number(),
+           t.ser = as.numeric(t.ser))
+  
+  plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
+    mutate(x = row_number() + length(arima.input)) %>%
+    gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
+    bind_rows(init.obs) %>%
+    bind_rows(control.ser) %>%
+    arrange(x)
+  
+  hold.confint <- as.data.frame(cbind(low.confit, upper.confint)) %>%
+    mutate(x = row_number() + length(arima.input)) %>%
+    arrange(x)
+  
+  plot.im <- plot.res %>%
+    ggplot(aes(x=x, y=t.ser))+
+    geom_path(aes(color = obs.pred)) +
+    geom_ribbon(data = hold.confint, inherit.aes = F,
+                aes(ymin = low.confit, ymax = upper.confint, alpha = .2, x = x), 
+                fill = "lightblue", show.legend = F) +
+    scale_color_manual(breaks = c("control", 'obs.val', 'pred.val'), labels = c("Control", "Observed", "Predicted"),
+                       values = c("grey30", "firebrick", "darkblue"), name ="Series") +
+    labs(title = "", x="", y = "") +
+    theme_bw() 
+  } else{
+  
+  plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
+    mutate(x = row_number() + length(arima.input)) %>%
+    gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
+    bind_rows(init.obs) %>%
+    arrange(x)
+  
+  plot.im <- plot.res %>%
+    ggplot(aes(x=x, y=t.ser))+
+    geom_path(aes(color = obs.pred)) +
+    geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), fill = "lightblue", show.legend = F) +
+    scale_color_manual(breaks = c('obs.val', 'pred.val'), labels = c("Observed", "Predicted"),
+                       values = c("firebrick", "darkblue"), name ="Series") +
+    labs(title = "", x="", y = "") +
+    theme_bw() 
+  }
+  
+  # Save info on cumulative effect
+  
+  cml.pre <- cumsum(arima.input)
+  end.pre <- dplyr::last(cml.pre)
+  
+  cml.up <- c(cml.pre, cumsum(upper.confint) + end.pre)
+  cml.down <- c(cml.pre, cumsum(low.confit) + end.pre)
+  cml.pred <- c(cml.pre, cumsum(pred.val) + end.pre)
+  cml.obs <- c(cml.pre, cumsum(obs.val) + end.pre)
+  
+  cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs)) %>%
+    mutate(cml.effect = cml.obs - cml.pred,
+           cml.effect.lower = cml.obs - cml.up,
+           cml.effect.upper = cml.obs - cml.down,
+           x = row_number())
+  
+  cml.plot <- cml.df %>%
+    ggplot(aes(x = x, y = cml.effect)) +
+    geom_path() +
+    geom_ribbon(aes(ymin = cml.effect.lower, ymax = cml.effect.upper), fill = "darkblue", alpha = 0.5) 
+  
+  outlist <- list(plot.res, plot.im, cml.df, cml.plot)
+  names(outlist) <- c("CI.plotinput", "CI.plot", "cml.df", "cml.plot")
+  return(outlist)
+  
+}
 ```
 
+# No noise
+
 ```{r}
-# par(mfrow=c(1, 1))
-ts.forecasts<-forecast(fit.arima, h=174)
-plot(ts.forecasts, include = 2880)
 
-low.confit <- ts.forecasts$lower[,2]
-upper.confint <- ts.forecasts$upper[,2]
-obs.val <- nohop$LinearAccelerometerSensor[176:349]
-pred.val <- ts.forecasts$mean
+noiseless.arima <- pull.arima.model(nohop$LinearAccelerometerSensor[1:175], nohop$LinearAccelerometerSensor[176:349])
 
-init.obs <- nohop %>%
-  select(LinearAccelerometerSensor) %>%
-  rename('t.ser' = 'LinearAccelerometerSensor') %>%
-  mutate(obs.pred = "obs.val",
-         x = 1:349) %>%
-  filter(x %in% 1:175)
-
-plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
-  mutate(x = 176:349) %>%
-  gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
-  bind_rows(init.obs) %>%
-  arrange(x)
-
-plot.res %>%
-  ggplot(aes(x=x, y=t.ser))+
-  geom_path(aes(color = obs.pred)) +
-  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), fill = "lightblue", show.legend = F) +
-  scale_color_manual(breaks = c('obs.val', 'pred.val'), labels = c("Observed", "Predicted"),
-                     values = c("firebrick", "darkblue"), name ="Series") +
-  labs(title = "ARIMA:change circumference of spin", x="", y = "") +
-  theme_bw() +
+noiseless.arima$CI.plot +
   ggsave("../figures/ARIMA_no-noise.png")
-```
 
-```{r}
-cml.pre <- cumsum(init.obs$t.ser)
-end.pre <- max(nohop.pre)
-
-cml.up <- c(cml.pre, cumsum(upper.confint) + cml.pre[end.pre])
-cml.down <- c(cml.pre, cumsum(low.confit) + cml.pre[end.pre])
-cml.pred <- c(cml.pre, cumsum(pred.val) + cml.pre[end.pre])
-cml.obs <- c(cml.pre, cumsum(obs.val) + cml.pre[end.pre])
-
-  # series$cum.effect <- series$cum.y.model - series$cum.pred
-  # series$cum.effect.lower <- series$cum.y.model - series$cum.pred.upper
-  # series$cum.effect.upper <- series$cum.y.model - series$cum.pred.lower
-
-cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:349)) %>%
-  mutate(cml.effect = cml.obs - cml.pred,
-         cml.effect.lower = cml.obs -cml.up,
-         cml.effect.upper = cml.obs - cml.down)
-
-cml.df %>%
-  ggplot(aes(x = x, y = cml.effect)) +
-  geom_path() +
-  geom_ribbon(aes(ymin = cml.effect.lower, ymax = cml.effect.upper), fill = "darkblue", alpha = 0.5) +
+noiseless.arima$cml.plot  +
   ggsave("../figures/cmlint_no-noise.png")
 ```
 
 ## Add noise
 
 ```{r}
-arima.input <- ideal_set$LinearAccelerometerSensor[1:95]
+addnoise.arima <- pull.arima.model(ideal_set$LinearAccelerometerSensor[1:95],
+                                   ideal_set$LinearAccelerometerSensor[96:203])
 
-fit.arima <- auto.arima(arima.input)
-tsdisplay(residuals(fit.arima))
-```
-
-```{r}
-# par(mfrow=c(1, 1))
-ts.forecasts<-forecast(fit.arima, h=109)
-plot(ts.forecasts, include = 2880)
-
-low.confit <- ts.forecasts$lower[,2]
-upper.confint <- ts.forecasts$upper[,2]
-obs.val <- ideal_set$LinearAccelerometerSensor[96:204]
-pred.val <- ts.forecasts$mean
-
-init.obs <- ideal_set %>%
-  select(LinearAccelerometerSensor) %>%
-  rename('t.ser' = 'LinearAccelerometerSensor') %>%
-  mutate(obs.pred = "obs.val",
-         x = 1:203) %>%
-  filter(x %in% 1:95)
-
-plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
-  mutate(x = 96:204) %>%
-  gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
-  bind_rows(init.obs) %>%
-  arrange(x)
-
-# plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
-#   mutate(x = 176:349)
-
-plot.res %>%
-  ggplot(aes(x=x, y=t.ser))+
-  geom_path(aes(color = obs.pred)) +
-  geom_ribbon(aes(ymin = low.confit, ymax = upper.confint, alpha = .2), fill = "lightblue", show.legend = F) +
-  scale_color_manual(breaks = c('obs.val', 'pred.val'), labels = c("Observed", "Predicted"),
-                     values = c("firebrick", "darkblue"), name ="Series") +
-  labs(title = "ARIMA:add jump for noise", x="", y = "") +
-  theme_bw() +
+addnoise.arima$CI.plot +
   ggsave("../figures/ARIMA_add-noise.png")
-```
 
-```{r}
-cml.pre <- cumsum(init.obs$t.ser)
-end.pre <- max(pre.period.ideal)
-
-cml.up <- c(cml.pre, cumsum(upper.confint) + cml.pre[end.pre])
-cml.down <- c(cml.pre, cumsum(low.confit) + cml.pre[end.pre])
-cml.pred <- c(cml.pre, cumsum(pred.val) + cml.pre[end.pre])
-cml.obs <- c(cml.pre, cumsum(obs.val) + cml.pre[end.pre])
-
-  # series$cum.effect <- series$cum.y.model - series$cum.pred
-  # series$cum.effect.lower <- series$cum.y.model - series$cum.pred.upper
-  # series$cum.effect.upper <- series$cum.y.model - series$cum.pred.lower
-
-cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:204)) %>%
-  mutate(cml.effect = cml.obs - cml.pred,
-         cml.effect.lower = cml.obs -cml.up,
-         cml.effect.upper = cml.obs - cml.down)
-
-cml.df %>%
-  ggplot(aes(x = x, y = cml.effect)) +
-  geom_path() +
-  geom_ribbon(aes(ymin = cml.effect.lower, ymax = cml.effect.upper), fill = "darkblue", alpha = 0.5) +
+addnoise.arima$cml.plot +
   ggsave("../figures/cmlint_add-noise.png")
 ```
 
 ## Account for noise
 
 ```{r}
-arima.input <- ideal_set$LinearAccelerometerSensor[1:95]
-covser <- ideal_set$lincont[1:95]
-covtest <- ideal_set$lincont[96:203]
+accountnoise.arima <- pull.arima.model(ideal_set$LinearAccelerometerSensor[1:95],
+                                       ideal_set$LinearAccelerometerSensor[96:203],
+                                       ideal_set$lincont[1:95],
+                                       ideal_set$lincont[96:203])
 
-fit.arima <- auto.arima(arima.input, xreg = covser)
-tsdisplay(residuals(fit.arima))
-```
-
-
-```{r}
-# par(mfrow=c(1, 1))
-ts.forecasts<-forecast(fit.arima, h=108, xreg = covtest)
-plot(ts.forecasts, include = 2880)
-
-low.confit <- ts.forecasts$lower[,2]
-upper.confint <- ts.forecasts$upper[,2]
-obs.val <- ideal_set$LinearAccelerometerSensor[96:203]
-pred.val <- ts.forecasts$mean
-
-init.obs <- ideal_set %>%
-  dplyr::select(LinearAccelerometerSensor) %>%
-  rename("t.ser" = 'LinearAccelerometerSensor') %>%
-  mutate(obs.pred = "obs.val",
-         x = 1:203) %>%
-  filter(x %in% 1:95)
-
-control.ser <- ideal_set %>%
-  dplyr::select(lincont) %>%
-  rename("t.ser" = "lincont") %>%
-  mutate(obs.pred = "control",
-         x = 1:203)
-
-plot.res <- as.data.frame(cbind(low.confit, upper.confint, pred.val, obs.val)) %>%
-  mutate(x = 96:203) %>%
-  gather(pred.val, obs.val, key = "obs.pred", value = "t.ser") %>%
-  bind_rows(init.obs) %>%
-  bind_rows(control.ser) %>%
-  arrange(x)
-
-# plot.res <- as.data.frame(cbind(low.confit, upper.confint, obs.val)) %>%
-#   mutate(x = 176:349)
-
-hold.confint <- as.data.frame(cbind(low.confit, upper.confint)) %>%
-  mutate(x = 96:203) %>%
-  arrange(x)
-
-plot.res %>%
-  ggplot(aes(x=x, y=t.ser))+
-  geom_path(aes(color = obs.pred)) +
-  geom_ribbon(data = hold.confint, inherit.aes = F,
-              aes(ymin = low.confit, ymax = upper.confint, alpha = .2, x = x), fill = "lightblue", show.legend = F) +
-  scale_color_manual(breaks = c("control", 'obs.val', 'pred.val'), labels = c("Control", "Observed", "Predicted"),
-                     values = c("grey30", "firebrick", "darkblue"), name ="Series") +
-  labs(title = "ARIMA:account for noise", x="", y = "") +
-  theme_bw() +
+accountnoise.arima$CI.plot +
   ggsave("../figures/ARIMA_account-noise.png")
-```
 
-```{r}
-cml.pre <- cumsum(init.obs$t.ser)
-end.pre <- max(pre.period.ideal)
-
-cml.up <- c(cml.pre, cumsum(upper.confint) + cml.pre[end.pre])
-cml.down <- c(cml.pre, cumsum(low.confit) + cml.pre[end.pre])
-cml.pred <- c(cml.pre, cumsum(pred.val) + cml.pre[end.pre])
-cml.obs <- c(cml.pre, cumsum(obs.val) + cml.pre[end.pre])
-
-  # series$cum.effect <- series$cum.y.model - series$cum.pred
-  # series$cum.effect.lower <- series$cum.y.model - series$cum.pred.upper
-  # series$cum.effect.upper <- series$cum.y.model - series$cum.pred.lower
-
-cml.df <- as.data.frame(cbind(cml.up, cml.down, cml.pred, cml.obs, x = 1:203)) %>%
-  mutate(cml.effect = cml.obs - cml.pred,
-         cml.effect.lower = cml.obs -cml.up,
-         cml.effect.upper = cml.obs - cml.down)
-
-cml.df %>%
-  ggplot(aes(x = x, y = cml.effect)) +
-  geom_path() +
-  geom_ribbon(aes(ymin = cml.effect.lower, ymax = cml.effect.upper), fill = "darkblue", alpha = 0.5) +
+accountnoise.arima$cml.plot +
   ggsave("../figures/cmlint_account-noise.png")
 ```
 
-# GLMM
+# Comparing sensitivity to CI
 
 ```{r}
+cml.ari.nn <- noiseless.arima$cml.df
+cml.ari.an <- addnoise.arima$cml.df
+cml.ari.ac <- accountnoise.arima$cml.df
 
+cml.ci.nn <- read.csv("../data/CI-res_no-noise.csv", stringsAsFactors = F) %>%
+  filter(metric == "cumulative") %>%
+  rename("cml.effect" = "mean",
+         "cml.effect.lower" = "lower",
+         "cml.effect.upper" = "upper")
+cml.ci.an <- read.csv("../data/CI-res_add-noise.csv", stringsAsFactors = F) %>%
+  filter(metric == "cumulative") %>%
+  rename("cml.effect" = "mean",
+         "cml.effect.lower" = "lower",
+         "cml.effect.upper" = "upper")
+cml.ci.ac <- read.csv("../data/CI-res_account-noise.csv", stringsAsFactors = F) %>%
+  filter(metric == "cumulative") %>%
+  rename("cml.effect" = "mean",
+         "cml.effect.lower" = "lower",
+         "cml.effect.upper" = "upper")
 ```
-
-# GEE
 
 ```{r}
-ideal_set$changepoint <- c(rep(0, 95), rep(1, 108))
-
-gee.mod <- gee(formula = LinearAccelerometerSensor ~ lincont + changepoint,id = changepoint, data = ideal_set, family = "gaussian")
-
-gee.mod$coefficients
-```
-
-# RNN
-https://www.kaggle.com/rtatman/beginner-s-intro-to-rnn-s-in-r
-
-This is from a tutorial guessing a binary outcome, similar to the other summary Dan found. New keywords: sig diff between time series? We could test the series before and after the event?
-```{r data set up, eval = F}
-# set some parameters for our model
-max_len <- 6 # the number of previous examples we'll look at
-batch_size <- 32 # number of sequences to look at at one time during training
-total_epochs <- 15 # how many times we'll look @ the whole dataset while training our model
-
-# set a random seed for reproducability
-set.seed(123)
-
-# Cut the text in overlapping sample sequences of max_len characters
-rain <- ideal_set$LinearAccelerometerSensor
-# get a list of start indexes for our (overlapping) chunks
-start_indexes <- seq(1, length(rain) - (max_len + 1), by = 3)
-
-# create an empty matrix to store our data in
-weather_matrix <- matrix(nrow = length(start_indexes), ncol = max_len + 1)
-
-# fill our matrix with the overlapping slices of our dataset
-for (i in 1:length(start_indexes)){
-  weather_matrix[i,] <- rain[start_indexes[i]:(start_indexes[i] + max_len)]
+percent_time_outside_zero <- function(cml.res, effect.scale){
+  cml.tmp <- cml.res %>%
+    filter(cml.effect != 0)
+  indiv.effects <- c(cml.tmp$cml.effect[1], diff(cml.tmp$cml.effect))
+  orig.cmlint.low <- cml.tmp$cml.effect-cml.tmp$cml.effect.upper
+  orig.cmlint.high <- cml.tmp$cml.effect - cml.tmp$cml.effect.lower
+  mean.effect <- mean(indiv.effects)
+  scaled.effect <- indiv.effects - mean.effect + (effect.scale * mean.effect)
+  scaled.effect.cml <- cumsum(scaled.effect)
+  cml.scaled <- as.data.frame(cbind(orig.cmlint.low, orig.cmlint.high, scaled.effect.cml), stringsAsFactors = F) %>%
+    mutate(scaled.lower = scaled.effect.cml - orig.cmlint.high,
+           scaled.upper = scaled.effect.cml - orig.cmlint.low) %>%
+    mutate(out0 = !(scaled.lower <= 0 & scaled.upper >= 0), 
+           x = row_number())
+  
+  percent.sig <- mean(cml.scaled$out0)
+  return(percent.sig)
+  
 }
 
-# make sure it's numeric
-weather_matrix <- weather_matrix * 1
+test <- percent_time_outside_zero(cml.ari.nn, 10)
+table(test$out0)
 
-# remove na's if you have them
-if(anyNA(weather_matrix)){
-    weather_matrix <- na.omit(weather_matrix)
+# Trying to get a good idea of how much we'd need to scale up/down the effects for the sigmoid plot to make sense
+check_effect_scales <- function(cml.res){
+  dist.to.0 <- dplyr::last(cml.res$cml.effect.upper)/(dplyr::last(cml.res$cml.effect.upper) - dplyr::last(cml.res$cml.effect))
+  
+  # dist.to.sig <- (dplyr::last(cml.res$cml.effect.upper) - dplyr::last(cml.res$cml.effect))/
+  #   dplyr::last(cml.res$cml.effect)
+  
+  return(dist.to.0)
 }
 
-X <- weather_matrix[,-ncol(weather_matrix)]
-y <- weather_matrix[,ncol(weather_matrix)]
-
-# create an index to split our data into testing & training sets
-training_index <- createDataPartition(y, p = .9, 
-                                  list = FALSE, 
-                                  times = 1)
-
-# training data
-X_train <- array(X[training_index,], dim = c(length(training_index), max_len, 1))
-y_train <- y[training_index]
-
-# testing data
-X_test <- array(X[-training_index,], dim = c(length(y) - length(training_index), max_len, 1))
-y_test <- y[-training_index]
 ```
-
-```{r model set up, eval = F}
-# initialize our model
-model <- keras_model_sequential()
-# dimensions of our input data
-dim(X_train)
-
-# our input layer
-model %>%
-    layer_dense(input_shape = dim(X_train)[2:3], units = max_len)
-model %>% 
-    layer_simple_rnn(units = 6)
-model %>%
-    layer_dense(units = 1, activation = 'sigmoid') # output
-
-# look at our model architecture
-summary(model)
-
-model %>% compile(loss = 'binary_crossentropy', 
-                  optimizer = 'RMSprop', 
-                  metrics = c('accuracy'))
-```
-
-```{r, eval = F}
-# Actually train our model! This step will take a while
-trained_model <- model %>% fit(
-    x = X_train, # sequence we're using for prediction 
-    y = y_train, # sequence we're predicting
-    batch_size = batch_size, # how many samples to pass to our model at a time
-    epochs = total_epochs, # how many times we'll look @ the whole dataset
-    validation_split = 0.1) # how much data to hold out for testing as we go along
-
-```
-
-```{r, eval=F}
-# how well did our trained model do?
-trained_model
-
-# plot how our model preformance changed during training 
-plot(trained_model)
-
-# Predict the classes for the test data
-classes <- model %>% predict_classes(X_test, batch_size = batch_size)
-
-# Confusion matrix
-table(y_test, classes)
-
-model %>% evaluate(X_test, y_test, batch_size = batch_size)
-
-# baseline: just guess the weather will be the same as yesterday
-day_before <- X_test[,max_len - 1,1]
-
-# Confusion matrix
-table(y_test, day_before)
-
-# accuracy
-sum(day_before == classes)/length(classes)
-```
-# LSTN
-
-# Change point analysis: 
 
 ```{r}
-sem_lm <- lm(LinearAccelerometerSensor ~ 1 + lincont, data = ideal_set)
-seg.fit <- segmented(sem_lm, ~lincont, npsi = 1)
+all.modelling.res <- list(cml.ari.nn, cml.ari.an, cml.ari.ac,
+                          cml.ci.nn, cml.ci.an, cml.ci.ac)
+names(all.modelling.res) <- c("ARIMA.NoNoise", "ARIMA.AddNoise", "ARIMA.AddControl",
+                              "CI.NoNoise", "CI.AddNoise", "CI.AddControl")
 
-summary(seg.fit)
+lapply(all.modelling.res, function(x) check_effect_scales(x))
+```
 
-sem_lm <- lm(LinearAccelerometerSensor ~ 1 + x, data = ideal_set)
-seg.fit <- segmented(sem_lm, ~x, npsi = 1)
 
-summary(seg.fit)
+```{r}
+scaleccheck <- c(seq(0,2,0.1), seq(3,10,.5))
+
+check.effect.scales <- lapply(all.modelling.res, function(x) lapply(scaleccheck, function(y) percent_time_outside_zero(x,y)))
+
+
+make.effect.df <- lapply(check.effect.scales, function(x) unlist(x)) %>%
+  bind_cols() %>%
+  mutate(scale = scaleccheck) %>%
+  gather(-scale, key = "Model", value = "percent.out0")
+```
+
+```{r}
+make.effect.df %>%
+  ggplot(aes(x = scale, y = percent.out0, color = Model)) +
+  stat_smooth(method = "loess") +
+  geom_vline(xintercept = 1, lty = 2) +
+  labs(x = "Effect multiplier", y = "% 0 outside confidence interval") +
+  ggsave("../figures/check-algorithm-sensitivity.png")
 ```

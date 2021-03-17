@@ -259,11 +259,13 @@ jumpnocov.res <- CausalImpact(ideal_set$LinearAccelerometerSensor,
                               pre.period = pre.period.ideal, post.period = post.period.ideal)
 
 # Include a covariate series where the radius was not changed and the jump occured.
-ideal.res <- CausalImpact(ideal_set[,-1], pre.period.ideal, post.period.ideal)
+ideal.res <- CausalImpact(as.matrix(ideal_set[,-1]), pre.period.ideal, post.period.ideal)
 
 ```
 
-## Assemble
+
+
+## Assemble, keep plot data for comparisons
 
 ```{r}
 with_cont.plot <- plot(ideal.res , c("original", "cumulative"))
@@ -271,6 +273,12 @@ with_cont.plot <- plot(ideal.res , c("original", "cumulative"))
 no_hop.plot <- plot(no_hop.res, c("original", "cumulative"))
 
 hop.plot <- plot(jumpnocov.res, c("original", "cumulative"))
+```
+
+```{r}
+write.csv(no_hop.plot$data, "../data/CI-res_no-noise.csv", row.names = F)
+write.csv(hop.plot$data, "../data/CI-res_add-noise.csv", row.names = F)
+write.csv(with_cont.plot$data, "../data/CI-res_account-noise.csv", row.names = F)
 ```
 
 
