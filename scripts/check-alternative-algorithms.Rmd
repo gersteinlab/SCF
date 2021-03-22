@@ -175,10 +175,10 @@ pull.arima.model <- function(arima.input, obs.val, cov.ser = NULL, cov.test = NU
 noiseless.arima <- pull.arima.model(nohop$LinearAccelerometerSensor[1:175], nohop$LinearAccelerometerSensor[176:349])
 
 noiseless.arima$CI.plot +
-  ggsave("../figures/ARIMA_no-noise.png")
+  ggsave("../figures/ARIMA_no-noise.pdf")
 
 noiseless.arima$cml.plot  +
-  ggsave("../figures/cmlint_no-noise.png")
+  ggsave("../figures/cmlint_no-noise.pdf")
 ```
 
 ## Add noise
@@ -188,10 +188,10 @@ addnoise.arima <- pull.arima.model(ideal_set$LinearAccelerometerSensor[1:95],
                                    ideal_set$LinearAccelerometerSensor[96:203])
 
 addnoise.arima$CI.plot +
-  ggsave("../figures/ARIMA_add-noise.png")
+  ggsave("../figures/ARIMA_add-noise.pdf")
 
 addnoise.arima$cml.plot +
-  ggsave("../figures/cmlint_add-noise.png")
+  ggsave("../figures/cmlint_add-noise.pdf")
 ```
 
 ## Account for noise
@@ -203,10 +203,10 @@ accountnoise.arima <- pull.arima.model(ideal_set$LinearAccelerometerSensor[1:95]
                                        ideal_set$lincont[96:203])
 
 accountnoise.arima$CI.plot +
-  ggsave("../figures/ARIMA_account-noise.png")
+  ggsave("../figures/ARIMA_account-noise.pdf")
 
 accountnoise.arima$cml.plot +
-  ggsave("../figures/cmlint_account-noise.png")
+  ggsave("../figures/cmlint_account-noise.pdf")
 ```
 
 # Comparing sensitivity to CI
@@ -254,8 +254,6 @@ percent_time_outside_zero <- function(cml.res, effect.scale){
   
 }
 
-test <- percent_time_outside_zero(cml.ari.nn, 10)
-table(test$out0)
 
 # Trying to get a good idea of how much we'd need to scale up/down the effects for the sigmoid plot to make sense
 check_effect_scales <- function(cml.res){
@@ -270,12 +268,12 @@ check_effect_scales <- function(cml.res){
 ```
 
 ```{r}
-all.modelling.res <- list(cml.ari.nn, cml.ari.an, cml.ari.ac,
-                          cml.ci.nn, cml.ci.an, cml.ci.ac)
-names(all.modelling.res) <- c("ARIMA.NoNoise", "ARIMA.AddNoise", "ARIMA.AddControl",
-                              "CI.NoNoise", "CI.AddNoise", "CI.AddControl")
-
-lapply(all.modelling.res, function(x) check_effect_scales(x))
+# all.modelling.res <- list(cml.ari.nn, cml.ari.an, cml.ari.ac,
+#                           cml.ci.nn, cml.ci.an, cml.ci.ac)
+# names(all.modelling.res) <- c("ARIMA.NoNoise", "ARIMA.AddNoise", "ARIMA.AddControl",
+#                               "CI.NoNoise", "CI.AddNoise", "CI.AddControl")
+# 
+# lapply(all.modelling.res, function(x) check_effect_scales(x))
 ```
 
 
@@ -297,5 +295,5 @@ make.effect.df %>%
   stat_smooth(method = "loess") +
   geom_vline(xintercept = 1, lty = 2) +
   labs(x = "Effect multiplier", y = "% 0 outside confidence interval") +
-  ggsave("../figures/check-algorithm-sensitivity.png")
+  ggsave("../figures/check-algorithm-sensitivity.pdf")
 ```
